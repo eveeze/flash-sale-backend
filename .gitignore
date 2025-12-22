@@ -1,0 +1,15 @@
+# Binaries
+main
+*.exe
+*.test
+
+# Dependency
+vendor/
+
+# Env & Secrets
+.env
+
+# IDE & System
+.vscode/
+.idea/
+.DS_Store
