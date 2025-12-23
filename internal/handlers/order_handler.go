@@ -9,46 +9,47 @@ import (
 	"github.com/eveeze/flash-sale/internal/database"
 	"github.com/eveeze/flash-sale/internal/kafka"
 	"github.com/eveeze/flash-sale/internal/models"
+	"github.com/eveeze/flash-sale/pkg/logger" // Import Logger
+	"go.uber.org/zap"
 )
 
-// Request body dari user saat beli
 type PurchaseRequest struct {
 	UserID    int `json:"user_id"`
 	ProductID int `json:"product_id"`
 }
 
 func PurchaseProduct(w http.ResponseWriter, r *http.Request) {
-	// 1. Decode Request
+	// 1. Decode
 	var req PurchaseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Log.Warn("Invalid purchase request body", zap.Error(err))
 		http.Error(w, "Invalid Format", http.StatusBadRequest)
 		return
 	}
 
-	// 2. CEK STOK DI REDIS (Atomic Decrement)
-	// Pastikan key-nya SAMA PERSIS dengan yang kamu buat di product_handler
-	// Tadi di output kamu: "product_stock:1" (pakai c)
+	// 2. Redis Decr
 	redisKey := fmt.Sprintf("product_stock:%d", req.ProductID)
-
-	// Kurangi stok -1. Ini operasi atomik (aman dari race condition)
 	sisaStok, err := database.Rdb.Decr(r.Context(), redisKey).Result()
 	if err != nil {
-		http.Error(w, "System Error: Redis Down", http.StatusInternalServerError)
+		logger.Log.Error("Redis connection failed", zap.Error(err))
+		http.Error(w, "System Error", http.StatusInternalServerError)
 		return
 	}
 
 	// 3. Validasi Stok
 	if sisaStok < 0 {
-		// Kalau hasil minus, berarti stok habis.
-		// Kembalikan angkanya biar gak minus terus (Incr)
-		database.Rdb.Incr(r.Context(), redisKey)
+		database.Rdb.Incr(r.Context(), redisKey) // Rollback
 		
-		http.Error(w, "Yah, Stok Habis! Kalah cepat :(", http.StatusConflict)
+		// Log Info (bukan Error) karena stok habis itu wajar bisnis
+		logger.Log.Info("Stok Habis (Sold Out)", 
+			zap.Int("user_id", req.UserID),
+			zap.Int("product_id", req.ProductID))
+			
+		http.Error(w, "Yah, Stok Habis!", http.StatusConflict)
 		return
 	}
 
-	// 4. Stok Aman? KIRIM KE KAFKA!
-	// Kita bikin struct order sementara buat dikirim
+	// 4. Publish Kafka
 	orderEvent := models.Order{
 		UserID:    req.UserID,
 		ProductID: req.ProductID,
@@ -56,22 +57,24 @@ func PurchaseProduct(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	}
 
-	// Kirim ke topic "orders"
 	err = kafka.PublishOrder("orders", orderEvent)
 	if err != nil {
-		// Kalau gagal kirim ke Kafka, kita harus balikin stok Redis (Kompensasi)
-		database.Rdb.Incr(r.Context(), redisKey)
-		http.Error(w, "Gagal memproses order", http.StatusInternalServerError)
+		database.Rdb.Incr(r.Context(), redisKey) // Kompensasi Redis
+		logger.Log.Error("Gagal publish ke Kafka", zap.Error(err))
+		http.Error(w, "Order processing failed", http.StatusInternalServerError)
 		return
 	}
 
-	// 5. Beri Respon "Accepted" (Bukan Created/Success)
-	// Karena aslinya belum masuk database SQL, cuma masuk antrian.
+	// Log Sukses (Debug level biar gak spam kalau di production, atau Info kalau butuh audit)
+	logger.Log.Info("Order masuk antrian", 
+		zap.Int("user_id", req.UserID), 
+		zap.Int("product_id", req.ProductID))
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted) // Code 202
+	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Pesanan diterima! Sedang diproses.",
+		"message":            "Pesanan diterima! Sedang diproses.",
 		"sisa_stok_estimasi": sisaStok,
-		"status": "queued",
+		"status":             "queued",
 	})
 }

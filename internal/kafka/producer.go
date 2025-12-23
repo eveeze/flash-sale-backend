@@ -2,37 +2,36 @@ package kafka
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-	"strings" // Butuh ini untuk split string brokers
+	"strings"
 
 	"github.com/IBM/sarama"
-	"github.com/eveeze/flash-sale/internal/config" // Import Config kita
+	"github.com/eveeze/flash-sale/internal/config"
+	"github.com/eveeze/flash-sale/pkg/logger" // Pakai logger kita
+	"go.uber.org/zap"
 )
 
 var Producer sarama.SyncProducer
 
-// InitProducer: Menyiapkan koneksi ke Kafka
 func InitProducer() {
-	// Setup konfigurasi Kafka
 	kafkaConfig := sarama.NewConfig()
 	kafkaConfig.Producer.Return.Successes = true
 	kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
 	kafkaConfig.Producer.Retry.Max = 5
 
-	// Ambil alamat broker dari Config Viper
-	// Di .env formatnya "host1:9092,host2:9092", Sarama butuh []string
 	brokers := strings.Split(config.AppConfig.KafkaBrokers, ",")
 
 	var err error
 	Producer, err = sarama.NewSyncProducer(brokers, kafkaConfig)
 	if err != nil {
+		// Fatal error tetap pakai log.Fatal atau logger.Log.Fatal
 		log.Fatal("❌ Gagal connect ke Kafka Producer:", err)
 	}
-	fmt.Println("✅ Sukses connect ke Kafka Producer")
+	
+	// Gunakan Zap untuk info sukses
+	logger.Log.Info("✅ Sukses connect ke Kafka Producer", zap.Strings("brokers", brokers))
 }
 
-// PublishOrder: Mengirim pesan order ke Topic Kafka
 func PublishOrder(topic string, message interface{}) error {
 	val, err := json.Marshal(message)
 	if err != nil {
