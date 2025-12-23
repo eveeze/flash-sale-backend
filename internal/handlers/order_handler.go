@@ -42,7 +42,7 @@ func PurchaseProduct(w http.ResponseWriter, r *http.Request) {
 		// Kalau hasil minus, berarti stok habis.
 		// Kembalikan angkanya biar gak minus terus (Incr)
 		database.Rdb.Incr(r.Context(), redisKey)
-
+		
 		http.Error(w, "Yah, Stok Habis! Kalah cepat :(", http.StatusConflict)
 		return
 	}
@@ -70,8 +70,8 @@ func PurchaseProduct(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted) // Code 202
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":            "Pesanan diterima! Sedang diproses.",
+		"message": "Pesanan diterima! Sedang diproses.",
 		"sisa_stok_estimasi": sisaStok,
-		"status":             "queued",
+		"status": "queued",
 	})
 }
