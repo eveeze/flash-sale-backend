@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/eveeze/flash-sale/internal/config"
 	_ "github.com/lib/pq" // Driver Postgres wajib di-import begini
 	"github.com/redis/go-redis/v9"
 )
@@ -18,42 +19,35 @@ var (
 )
 
 func ConnectDB() {
-	// --- 1. KONEKSI POSTGRESQL ---
-	// Format: user:password@host:port/dbname?sslmode=disable
-	// Host 'localhost' karena kita jalankan Go di luar Docker (di laptop langsung)
-	dsn := "postgres://user:password@127.0.0.1:5432/flashsale_db?sslmode=disable"
+	// --- 1. POSTGRES ---
+	// Gunakan config dari viper
 	var err error
-	DB, err = sql.Open("postgres", dsn)
+	DB, err = sql.Open("postgres", config.AppConfig.DBUrl)
 	if err != nil {
 		log.Fatal("❌ Error konfigurasi Postgres:", err)
 	}
 
-	// Cek ping (memastikan server hidup)
 	if err = DB.Ping(); err != nil {
 		log.Fatal("❌ Gagal connect ke Postgres:", err)
 	}
 
-	// Setup Connection Pool (PENTING buat High Traffic!)
-	DB.SetMaxOpenConns(25) // Maksimal 25 koneksi terbuka
+	DB.SetMaxOpenConns(25)
 	DB.SetMaxIdleConns(25)
 	DB.SetConnMaxLifetime(5 * time.Minute)
-
 	fmt.Println("✅ Sukses connect ke PostgreSQL")
 
-	// --- 2. KONEKSI REDIS ---
+	// --- 2. REDIS ---
 	Rdb = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // Sesuai port di docker-compose
-		Password: "",               // Kita tidak set password di docker-compose
-		DB:       0,                // Default DB
+		Addr:     config.AppConfig.RedisAddr, // Ambil dari Config
+		Password: config.AppConfig.RedisPass,
+		DB:       config.AppConfig.RedisDB,
 	})
 
-	// Cek ping Redis
 	if err := Rdb.Ping(context.Background()).Err(); err != nil {
 		log.Fatal("❌ Gagal connect ke Redis:", err)
 	}
 	fmt.Println("✅ Sukses connect ke Redis")
 }
-
 func Migrate() {
 	fmt.Println("sedang melkaukan migrasi database")
 

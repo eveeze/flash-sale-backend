@@ -4,44 +4,46 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings" // Butuh ini untuk split string brokers
 
 	"github.com/IBM/sarama"
+	"github.com/eveeze/flash-sale/internal/config" // Import Config kita
 )
 
 var Producer sarama.SyncProducer
 
 // InitProducer: Menyiapkan koneksi ke Kafka
 func InitProducer() {
-	config := sarama.NewConfig()
-	// Kita butuh kepastian pesan sampai (WaitForAll) agar data tidak hilang
-	config.Producer.RequiredAcks = sarama.WaitForAll
-	config.Producer.Retry.Max = 5
-	config.Producer.Return.Successes = true
+	// Setup konfigurasi Kafka
+	kafkaConfig := sarama.NewConfig()
+	kafkaConfig.Producer.Return.Successes = true
+	kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
+	kafkaConfig.Producer.Retry.Max = 5
 
-	// Koneksi ke Kafka Localhost Port 9092
+	// Ambil alamat broker dari Config Viper
+	// Di .env formatnya "host1:9092,host2:9092", Sarama butuh []string
+	brokers := strings.Split(config.AppConfig.KafkaBrokers, ",")
+
 	var err error
-	Producer, err = sarama.NewSyncProducer([]string{"127.0.0.1:9092"}, config)
+	Producer, err = sarama.NewSyncProducer(brokers, kafkaConfig)
 	if err != nil {
-		log.Fatal("❌ Gagal connect ke Kafka:", err)
+		log.Fatal("❌ Gagal connect ke Kafka Producer:", err)
 	}
 	fmt.Println("✅ Sukses connect ke Kafka Producer")
 }
 
 // PublishOrder: Mengirim pesan order ke Topic Kafka
 func PublishOrder(topic string, message interface{}) error {
-	// Ubah data order jadi JSON byte
 	val, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 
-	// Bungkus jadi pesan Kafka
 	msg := &sarama.ProducerMessage{
 		Topic: topic,
 		Value: sarama.StringEncoder(val),
 	}
 
-	// Kirim!
 	_, _, err = Producer.SendMessage(msg)
 	return err
 }

@@ -5,22 +5,26 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/eveeze/flash-sale/internal/config" // Import Config
 	"github.com/eveeze/flash-sale/internal/database"
 	"github.com/eveeze/flash-sale/internal/handlers"
-	"github.com/eveeze/flash-sale/internal/kafka" // <--- Import baru
+	"github.com/eveeze/flash-sale/internal/kafka"
 )
 
 func main() {
+	// 1. LOAD CONFIGURATION (Paling Awal!)
+	config.LoadConfig()
+
 	fmt.Println("🔥 Menyalakan Flash Sale Engine...")
 
-	// 1. Database & Redis
+	// 2. Database & Redis (Akan otomatis pakai config yang sudah di-load)
 	database.ConnectDB()
 	database.Migrate()
 
-	// 2. Kafka Producer (PENTING: Jangan lupa ini!)
+	// 3. Kafka Producer
 	kafka.InitProducer()
 
-	// 3. Router
+	// 4. Router
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -30,12 +34,11 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /products", handlers.CreateProduct)
-	
-	// --- Route Baru: BUY ---
 	mux.HandleFunc("POST /purchase", handlers.PurchaseProduct)
 
-	// 4. Server Config
-	port := ":8080"
+	// 5. Server Config
+	// Gunakan Port dari Config
+	port := config.AppConfig.Port 
 	server := &http.Server{
 		Addr:         port,
 		Handler:      mux,
